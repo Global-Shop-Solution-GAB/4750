@@ -1,0 +1,319 @@
+Program.Sub.ScreenSU.Start
+Gui.Form..Create
+Gui.Form..Caption("Crew Members")
+Gui.Form..Size(7680,8205)
+Gui.Form..MinX(0)
+Gui.Form..MinY(0)
+Gui.Form..Position(0,0)
+Gui.Form..BackColor(-2147483633)
+Gui.Form..MaxButton(False)
+Gui.Form..MinButton(False)
+Gui.Form..MousePointer(0)
+Gui.Form..Moveable(False)
+Gui.Form..Event(UnLoad,cmdCancel_Click)
+Gui.Form.GsGridControl_Crew.Create(GsGridControl)
+Gui.Form.GsGridControl_Crew.Size(7185,6300)
+Gui.Form.GsGridControl_Crew.Position(120,105)
+Gui.Form.GsGridControl_Crew.Event(RowCellClick,GsGridControl_Crew_RowCellClick)
+Gui.Form.cmdOK.Create(Button)
+Gui.Form.cmdOK.Size(855,375)
+Gui.Form.cmdOK.Position(960,6780)
+Gui.Form.cmdOK.Caption("OK")
+Gui.Form.cmdOK.Event(Click,cmdOK_Click)
+Gui.Form.cmdCancel.Create(Button)
+Gui.Form.cmdCancel.Size(855,375)
+Gui.Form.cmdCancel.Position(2820,6780)
+Gui.Form.cmdCancel.Caption("Cancel")
+Gui.Form.cmdCancel.Event(Click,cmdCancel_Click)
+Gui.Form.cmdAllOut.Create(Button)
+Gui.Form.cmdAllOut.Size(2160,375)
+Gui.Form.cmdAllOut.Position(4575,6780)
+Gui.Form.cmdAllOut.Caption("Clock Everyone Out")
+Gui.Form.cmdAllOut.Event(Click,cmdAllOut_Click)
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+v.Global..BulkDeclareString(sError,sJob,sSuffix,sSeq,sEmp,sLeave)
+v.Global..BulkDeclareLong(iQty,iScrap,iGroup)
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'hook 15840 populate hook to change the label of script 1
+'hook 15850 is script 1
+'hook 15880 is the pre-process for the process button
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+
+f.ODBC.Connection!con.openconnection(v.Ambient.PDSN,v.Ambient.PUser,v.Ambient.PPass)
+
+f.Intrinsic.Control.SelectCase(v.Caller.Hook)
+	f.Intrinsic.Control.Case(15840)
+		Variable.passed.000048.set("Crew Leader") 'script 1
+		f.Intrinsic.Control.CallSub(Form_Unload)
+	f.Intrinsic.Control.Case(15850) 'script 1 button
+		v.Global.sjob.Set(v.Passed.009990)
+		v.Global.sSuffix.Set(v.Passed.009991)
+		v.Global.sSeq.Set(v.Passed.009992)
+		v.Global.sEmp.Set(v.Passed.009993)
+		v.Global.iQty.Set(v.Passed.000001)
+		v.Global.iScrap.Set(v.Passed.000002)
+		f.Intrinsic.Control.CallSub(check_leader)
+	f.Intrinsic.Control.Case(15880)
+		v.Global.sLeave.Set(v.Passed.000008)
+		v.Global.sjob.Set(v.Passed.009990)
+		v.Global.sSuffix.Set(v.Passed.009991)
+		v.Global.sSeq.Set(v.Passed.009992)
+		v.Global.sEmp.Set(v.Passed.009993)
+		v.Global.iQty.Set(v.Passed.000001)
+		v.Global.iScrap.Set(v.Passed.000002)
+		f.Intrinsic.Control.CallSub(check_leader)
+f.Intrinsic.Control.EndSelect
+
+gui.Form..Show
+		
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.Main.End
+
+Program.Sub.check_qty.Start
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+'checking to make sure that no quantity has been entered for good pieces or scrap pieces
+V.Local..BulkDeclareString(sError,sSql,sRet)
+
+f.Intrinsic.Control.If(v.Global.iQty,>,0,"OR",V.Global.iScrap,>,0)
+	f.Intrinsic.UI.Msgbox("Quantity not allowed when trying to switch Crew Leader","Crew Leader Error")
+	f.Intrinsic.Control.CallSub(cmdCancel_Click)
+F.Intrinsic.Control.Else
+	f.Intrinsic.Control.CallSub(buildgrid)
+f.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.check_qty.End
+
+Program.Sub.buildgrid.Start
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local..BulkDeclareString(sError,sSql)
+
+'we've determined that no quantities were involved and the person updating is in fact the crew leader.
+f.Intrinsic.String.Build("select J.EMPLOYEE, E.NAME from V_JOBS_IN_PROCESS_G J LEFT JOIN V_EMPLOYEE_MSTR E ON J.EMPLOYEE = E.EMPLOYEE WHERE J.CREW_ID = '{0}' AND J.EMPLOYEE > '' AND J.EMPLOYEE <> {1}",V.Global.iGroup,V.Global.sEmp,v.Local.sSql)
+F.Data.DataTable.CreateFromSQL("CREW","CON",V.LOCAL.SSQL,True)
+
+F.Intrinsic.Control.If(V.DataTable.CREW.RowCount,=,0)
+	F.Intrinsic.Control.CallSub(Form_Unload)
+F.Intrinsic.Control.EndIf
+
+'add boolean field to select the replacement leader
+F.Data.DataTable.AddColumn("CREW","LEADER","BOOLEAN",False)
+
+GUI.Form.GsGridControl_Crew.DataSource("CREW")
+gui.Form.GsGridControl_Crew.AddGridviewFromDatatable("GV_CREW","CREW")
+
+f.Intrinsic.Control.CallSub(formatgrid)
+
+f.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.buildgrid.End
+
+Program.Sub.cmdOK_Click.Start
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local..BulkDeclareString(sError,sSql,sSql2)
+v.Local.iCount.Declare(Long)
+
+F.Data.DataTable.AcceptChanges("CREW")
+V.Local.sSQL2.Set("update JOBS_IN_PROCESS_G SET CREW_LEADER = '{0}' WHERE EMPLOYEE = '{1}' and CREW_ID = '{2}'")
+
+'make the current leader a memeber
+f.Intrinsic.String.build(V.Local.sSQL2,"",v.Global.sEmp,v.Global.iGroup,v.Local.ssql2)
+f.ODBC.Connection!con.execute(v.Local.ssql2)
+
+'find the new leader and update their crew record
+f.Intrinsic.Control.For(V.Local.iCount,0,V.DataTable.CREW.RowCount--,1)
+	F.Intrinsic.Control.If(V.DataTable.CREW(V.Local.iCount).LEADER!FIELDVAL,"=",True)
+		F.Intrinsic.String.Build("update JOBS_IN_PROCESS_G SET CREW_LEADER = '{0}' WHERE EMPLOYEE = '{1}' and CREW_ID = '{2}'","Y",v.DataTable.CREW(v.Local.iCount).EMPLOYEE!FIELDVALTRIM,V.Global.iGroup,V.Local.sSql2)
+		F.ODBC.Connection!con.execute(v.Local.ssql2)
+	f.Intrinsic.Control.EndIf
+f.Intrinsic.Control.Next(v.Local.iCount)
+
+F.Intrinsic.Control.CallSub(Form_Unload)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.cmdOK_Click.End
+
+Program.Sub.cmdCancel_Click.Start
+'if the program was called from the process hook, and they cancel out of the form, we need to stop the 'process' transaction.
+f.Intrinsic.Control.If(v.Caller.hook,"=",15880)
+	v.Passed.777777.Set(1)
+f.Intrinsic.Control.EndIf
+
+f.ODBC.connection!con.Close
+f.Intrinsic.Control.End
+	
+Program.Sub.cmdCancel_Click.End
+
+Program.Sub.Form_UnLoad.Start
+F.ODBC.Connection!con.Close
+F.Intrinsic.Control.End
+Program.Sub.Form_UnLoad.End
+
+Program.Sub.GsGridControl_Crew_RowCellClick.Start
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+v.Local.bLead.Declare(Boolean)
+
+GUI.Form.GsGridControl_Crew.GetCellValueByColumnName("GV_CREW","LEADER",V.Args.RowIndex,v.Local.bLead)
+F.Intrinsic.Control.If(V.Args.Column.UCase,"=","LEADER")
+	f.Data.DataTable.SetValue("CREW",-1,"LEADER",False)
+	f.Intrinsic.Control.If(v.Local.bLead,=,False)
+		f.Data.DataTable.SetValue("CREW",V.Args.RowIndex,"LEADER",True)
+	f.Intrinsic.Control.ElseIf(v.Local.bLead,=,True)
+		f.Data.DataTable.SetValue("CREW",V.Args.RowIndex,"LEADER",False)
+	f.Intrinsic.Control.EndIf
+	gui.Form.GsGridControl_Crew.MainView("GV_CREW")
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+Program.Sub.GsGridControl_Crew_RowCellClick.End
+
+Program.Sub.formatgrid.Start
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+
+gui.Form.GsGridControl_Crew.SetColumnProperty("GV_CREW","LEADER","READONLY","TRUE")
+gui.Form.GsGridControl_Crew.SetColumnProperty("GV_CREW","LEADER","ALLOWEDIT","FALSE")
+
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.formatgrid.End
+
+Program.Sub.check_leave.Start
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+
+f.Intrinsic.Control.If(v.Caller.Hook,"=",15880)
+
+	f.Intrinsic.Control.If(v.Global.sLeave,"=","Y")
+		f.Intrinsic.Control.AndIf(v.Global.iQty,<,1,AND,v.Global.iScrap,<,1)
+			f.Intrinsic.UI.MsgBoxExt("Crew Leader","Are you leaving the Crew Leader Role?",6)
+	f.Intrinsic.Control.EndIf
+	
+	'return values.....1 = yes, 2 = no
+	f.Intrinsic.Control.If(Variable.Ambient.AltBoxClick,"=",1)
+		f.Intrinsic.Control.CallSub(check_qty)
+	f.Intrinsic.Control.ElseIf(V.Ambient.AltBoxClick,"=",2)
+		F.Intrinsic.Control.CallSub(cmdCancel_Click)
+	F.Intrinsic.Control.Else
+		f.Intrinsic.Control.CallSub(Form_UnLoad)
+	f.Intrinsic.Control.EndIf
+	
+f.Intrinsic.Control.Else
+	f.Intrinsic.Control.CallSub(check_qty)
+f.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.check_leave.End
+
+Program.Sub.check_leader.Start
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local..BulkDeclareString(sError,sSql,sRet)
+
+'verify the person clocking out is a crew leader and that there is no quantity involved
+f.Intrinsic.String.Build("select CREW_LEADER, CREW_ID from V_JOBS_IN_PROCESS_G where EMPLOYEE = '{0}'",V.Global.sEmp,V.Local.sSql)
+f.ODBC.connection!con.executeandreturn(v.Local.sSql,v.Local.sRet)
+f.Intrinsic.String.Split(v.Local.sRet,"*!*",v.local.sRet)
+
+f.Intrinsic.control.If(v.Local.sRet(0),"=","Y")
+	v.Global.iGroup.Set(v.Local.sRet(1))
+	f.Intrinsic.Control.CallSub(check_leave)
+f.Intrinsic.Control.Else
+	f.Intrinsic.Control.CallSub(Form_Unload)
+f.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+
+Program.Sub.check_leader.End
+
+Program.Sub.cmdAllOut_Click.Start
+F.Intrinsic.Control.SetErrorHandler("Sub_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.iReturn.Declare(Long)
+
+F.Intrinsic.UI.Msgbox("Are you sure you want to clock everyone out?","Clock Out",4,V.Local.iReturn)
+
+F.Intrinsic.Control.If(V.Local.iReturn,"=",6)
+	F.Intrinsic.Control.CallSub(Form_Unload)
+F.Intrinsic.Control.Else
+	F.Intrinsic.UI.Msgbox("Please select someone to be Crew Leader or cancel.")
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Sub_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: Project",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+Program.Sub.cmdAllOut_Click.End
+
+
